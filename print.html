@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Divine Visitation, Deliverance, and Family Prayer — Printable Pack</title>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+@page{size:Letter;margin:0.7in 0.7in 0.8in}
+body{font-family:"DM Sans",Arial,sans-serif;color:#0B1530;font-size:11pt;line-height:1.5;margin:0}
+h1,h2,h3{font-family:"Source Serif 4",Georgia,serif;color:#0B1E4A;line-height:1.2}
+h1{font-size:24pt;margin:0 0 6pt} h2{font-size:16pt;border-bottom:2px solid #C99A1E;padding-bottom:4pt;margin:22pt 0 8pt;break-after:avoid} h3{font-size:12.5pt;margin:14pt 0 4pt;break-after:avoid}
+.cover{text-align:center;padding-top:1.4in;break-after:page}
+.cover .min{letter-spacing:.14em;text-transform:uppercase;font-weight:700;color:#1F4FD1;font-size:10pt}
+.cover .open{font-family:"Source Serif 4",serif;font-size:12pt;margin:0 0 30pt}
+.verse{font-family:"Source Serif 4",serif;font-size:13pt;border-left:5px solid #C99A1E;background:#F4F7FD;padding:10pt 14pt;text-align:left;margin:20pt auto;max-width:5in}
+.lab{font-size:8.5pt;letter-spacing:.14em;text-transform:uppercase;font-weight:700;color:#7A5A00;margin:12pt 0 4pt}
+.who{display:block;font-size:8pt;font-weight:700;color:#3E4A66}
+.mark{color:#3E4A66;font-style:italic}
+p{margin:4pt 0 6pt;orphans:3;widows:3}
+.s{border-left:4px solid #1F4FD1;padding:4pt 10pt;margin:6pt 0;font-family:"Source Serif 4",serif;break-inside:avoid}
+.s b{font-family:"DM Sans",sans-serif;color:#1F4FD1;display:block;font-size:9.5pt}
+.d{margin:6pt 0;padding:6pt 10pt;border:1px solid #C9D4EE;border-radius:6pt;break-inside:avoid}
+.d small{display:block;color:#3E4A66;font-size:8pt;font-weight:700}
+.note{font-size:9pt;color:#3E4A66}
+.sec{break-before:page}
+a{color:#1F4FD1}
+</style></head><body><div id="out"></div>
+<script src="data.js"></script>
+<script>
+(function(){
+var S=window.STUDY,M=S.meta,h='';
+function e(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+function sc(r){var s=S.scripture[r];return '<div class="s"><b>'+e(s.ref)+' (KJV)</b>'+s.verses.map(function(v){return '<sup>'+v.v+'</sup> '+e(v.t);}).join(' ')+'</div>';}
+var main=S.scripture[M.mainRef];
+h+='<div class="cover"><p class="open">'+e(M.opening)+'</p><div class="min">'+e(M.ministry)+'</div><h1>'+e(M.title)+'</h1><p><b>'+e(M.minister)+'</b><br>'+e(M.date)+'</p><div class="verse">'+e(main.verses.map(function(v){return v.t;}).join(' '))+'<br><b style="font-family:DM Sans;color:#7A5A00">'+e(main.ref)+' (KJV)</b></div><p class="note">Contents: Part One, Original Prophetic Direction (clean public transcript, in order). Part Two, Declarations and Prayers. Part Three, Original Directions. Part Four, Supplementary Biblical Study. Part Five, Personalized Family Prayers.</p></div>';
+h+='<h1>Part One · Original Prophetic Direction</h1><p class="note">Clean public transcript. Participants\' names, personal prophecies, and personal conversations are removed for privacy and marked in brackets. Section titles are study labels only. Every other word is as transcribed.</p>';
+S.sections.forEach(function(s,i){
+  h+='<h2>Part '+(i+1)+'. '+e(s.title)+' <span class="note">('+s.start+')</span></h2>';
+  s.blocks.forEach(function(b){ h+= b.who ? '<p><span class="who">'+e(b.who)+' · '+b.ts+'</span>'+e(b.t)+'</p>' : '<p class="mark">'+e(b.t)+'</p>'; });
+  if(s.refs.length){ h+='<div class="lab">Scripture read or referred to (KJV)</div>'+s.refs.map(sc).join(''); }
+});
+h+='<h1 class="sec">Part Two · Declarations and Prayers</h1><p class="note">In the order spoken. Words in [square brackets] were unclear in the recording; the bracketed word is a suggested reading.</p>';
+S.decl.forEach(function(d,i){ h+='<div class="d"><small>'+(i+1)+' of '+S.decl.length+' · '+d.type+' · '+e(d.who)+' · '+d.ts+(d.ref?' · '+e(S.scripture[d.ref].ref):'')+'</small>'+e(d.text)+'</div>'; });
+h+='<h1 class="sec">Part Three · Original Directions</h1><p class="note">Word for word, in order.</p>';
+S.directions.forEach(function(d,i){ h+='<div class="d"><small>'+(i+1)+' of '+S.directions.length+' · '+e(d.who)+' · '+d.ts+'</small>“'+e(d.text)+'”</div>'; });
+h+='<h1 class="sec">Part Four · Supplementary Biblical Study</h1><p class="note">Study helps. Not the minister\'s words. Scripture is King James Version.</p>';
+['beginner','intermediate','advanced'].forEach(function(k){ var L=S.levels[k]; h+='<h2>'+L.label+'</h2><p class="note">'+e(L.intro)+'</p>';
+  L.cards.forEach(function(c,ci){ h+='<h3>'+(ci+1)+'. '+e(c.title)+'</h3>';
+   if(c.word) h+='<p><b>'+e(c.word[0])+' '+e(c.word[1])+'.</b> '+e(c.word[2])+'</p>';
+   if(c.context) h+='<p><b>Context.</b> '+e(c.context)+'</p>';
+   if(c.quote) h+='<p><b>Direct quotation, '+e(c.quote[0])+':</b> “'+e(c.quote[1])+'”</p>';
+   if(c.simple) h+='<p><b>What does this mean?</b> '+e(c.simple)+'</p>';
+   if(c.meaning) h+='<p>'+e(c.meaning)+'</p>'; if(c.application) h+='<p>'+e(c.application)+'</p>';
+   if(c.key) h+='<p><b>Key point:</b> '+e(c.key)+'</p>';
+   (c.commentary||[]).forEach(function(q){ var s=S.src[q[2]]; h+='<p>“'+e(q[1])+'” — '+e(q[0])+', <a href="'+s.url+'">'+e(s.url)+'</a></p>'; });
+   h+=c.refs.map(sc).join('');
+   if(c.src&&c.src.length) h+='<p class="note">Sources: '+c.src.map(function(k){var s=S.src[k];return e(s.name)+' ('+s.url+')';}).join('; ')+'</p>';
+  });
+  h+='<h3>'+L.label+' quiz</h3>'; S.quiz[k].forEach(function(q,qi){ h+='<p>'+(qi+1)+'. '+e(q.q)+'<br>'+q.o.map(function(o,oi){return String.fromCharCode(65+oi)+'. '+e(o);}).join('&nbsp;&nbsp; ')+'</p>'; });
+  h+='<p class="note">Answers: '+S.quiz[k].map(function(q,qi){return (qi+1)+String.fromCharCode(65+q.a)+' ('+e(S.scripture[q.ref].ref)+')';}).join(', ')+'</p>';
+});
+h+='<h2>Scripture notes</h2><p>2 Kings 4:8-9 (KJV) names Elisha as the man of God the Shunammite woman honored; the service said "the prophet Elijah." 2 Kings 2:19-22 records Elisha healing the waters of Jericho. The names heard as "Ruby" and "Rupi" match Reuben (Genesis 49:3-4; Deuteronomy 33:6). The King James Bible names the angels Michael and Gabriel; the name Raphael is not in the 66 books of the KJV.</p>';
+h+='<h1 class="sec">Part Five · Personalized Family Prayers</h1><p class="note">Built from King James Scripture used in the service. Not the minister\'s original declarations. Write your family\'s names in the blanks.</p>';
+S.family.forEach(function(p){ h+='<h3>'+e(p.title)+'</h3><p>'+e(p.text.replace(/\{(\w+)\}/g,'________'))+'</p>'+sc(p.ref); });
+h+='<p class="note" style="margin-top:20pt">L137 · Luke 1:37 · For with God nothing shall be impossible.</p>';
+document.getElementById('out').innerHTML=h;
+})();
+</script></body></html>
