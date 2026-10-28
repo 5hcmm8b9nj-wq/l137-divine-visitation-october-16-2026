@@ -39,12 +39,14 @@ $('#btnFontUp').onclick = function(){ fs = Math.min(28, fs+2); store.set('fs',fs
 $('#btnFontDown').onclick = function(){ fs = Math.max(14, fs-2); store.set('fs',fs); applyFs(); };
 $('#btnHome').onclick = function(){ go('home'); };
 
-/* ---------- speech engine (Web Speech API) ---------- */
+/* ---------- audio engine: recorded narration (MP3), device voice only as fallback ---------- */
 var synth = window.speechSynthesis || null;
-var A = { q:[], i:0, playing:false, token:0, timer:null, onDone:null, label:'' };
+var AU = window.AUDIO || null;
+var player = new Audio(); player.preload = 'auto';
+var A = { q:[], i:0, playing:false, token:0, timer:null, onDone:null, label:'', base:[], total:0, t0:0, pauseMs:0 };
 var rateSel = $('#abRate'), autoBox = $('#abAuto'), repBox = $('#abRepeatMode');
-rateSel.value = String(store.get('rate',1)); autoBox.checked = store.get('auto',true); repBox.checked = store.get('repmode',true);
-rateSel.onchange = function(){ store.set('rate', parseFloat(rateSel.value)); if(A.playing){ playAt(A.i); } };
+rateSel.value = String(store.get('rate',1)); autoBox.checked = store.get('auto',false); repBox.checked = store.get('repmode',true);
+rateSel.onchange = function(){ store.set('rate', parseFloat(rateSel.value)); player.playbackRate = parseFloat(rateSel.value)||1; };
 autoBox.onchange = function(){ store.set('auto', autoBox.checked); };
 repBox.onchange = function(){ store.set('repmode', repBox.checked); if(current && current.rebuild) current.rebuild(); };
 var voice = null;
@@ -62,37 +64,74 @@ function splitText(t){
   if(buf.trim()) out.push(buf.trim());
   return out;
 }
+function clip(id){ return (AU && AU.clips[id]) ? {audio:'audio/'+id+'.mp3', dur:AU.clips[id].d, text:AU.clips[id].t} : null; }
+function estDur(it){ return it.pause ? it.pause/1000 : (it.dur || Math.max(1.5, it.text.split(' ').length*0.42)); }
+function setBtn(icon, lbl){ $('#abIcon').textContent = icon; $('#abLbl').textContent = lbl; $('#abPlay').setAttribute('aria-label', lbl); }
+var RING = 2*Math.PI*29;
+function ring(f){ var r=$('#abRing'); if(r) r.style.strokeDashoffset = String(RING*(1-Math.max(0,Math.min(1,f)))); }
+function curFrac(){
+  if(!A.q.length || !A.total) return 0;
+  var it = A.q[A.i], part = 0;
+  if(it){ if(it.pause){ part = A.playing ? Math.min(it.pause, Date.now()-A.t0)/1000 : 0; } else if(it.audio && player.src && player.duration){ part = player.currentTime; } }
+  return (A.base[A.i] + part)/A.total;
+}
+setInterval(function(){ if(A.playing) ring(curFrac()); }, 250);
 function clearHL(){ document.querySelectorAll('.now').forEach(function(e){ e.classList.remove('now'); }); }
-function hl(id){ clearHL(); if(!id) return; var e = document.getElementById(id); if(e){ e.classList.add('now'); var r = e.getBoundingClientRect(); if(r.top < 70 || r.bottom > window.innerHeight-200) e.scrollIntoView({block:'center', behavior:'smooth'}); } }
-function load(queue, onDone, label){ stopAudio(true); A.q = queue; A.i = 0; A.onDone = onDone || null; A.label = label || ''; status(label ? label+' · ready' : 'Ready'); }
+function hl(id){ clearHL(); if(!id) return; var e = document.getElementById(id); if(e){ e.classList.add('now'); var r = e.getBoundingClientRect(); if(r.top < 70 || r.bottom > window.innerHeight-220) e.scrollIntoView({block:'center', behavior:'smooth'}); } }
+function load(queue, onDone, label){
+  stopAudio(true); A.q = queue; A.i = 0; A.onDone = onDone || null; A.label = label || '';
+  A.base = []; var t = 0; queue.forEach(function(it){ A.base.push(t); t += estDur(it); }); A.total = t; ring(0);
+  status(label ? label+' · ready' : 'Ready');
+}
+function halt(){ A.token++; player.onended = player.onerror = null; try{ player.pause(); }catch(e){} if(synth) synth.cancel(); clearTimeout(A.timer); }
 function playAt(i){
   if(!A.q.length) return;
-  if(synth) synth.cancel(); clearTimeout(A.timer);
-  A.i = Math.max(0, Math.min(i, A.q.length-1)); A.playing = true; var tk = ++A.token; $('#abPlay').innerHTML = '❚❚<small>Pause</small>';
-  var item = A.q[A.i];
-  hl(item.el);
-  function next(){ if(tk !== A.token) return; if(A.i < A.q.length-1){ playAt(A.i+1); } else { A.playing=false; $('#abPlay').innerHTML='▶<small>Play</small>'; status((A.label||'')+' · finished'); clearHL(); if(A.onDone) A.onDone(); } }
-  status((A.label ? A.label+' · ' : '') + (item.pause ? 'Your turn: say it aloud' : 'Reading '+(A.i+1)+' of '+A.q.length));
+  halt();
+  A.i = Math.max(0, Math.min(i, A.q.length-1)); A.playing = true; var tk = A.token; setBtn('❚❚','Pause');
+  var item = A.q[A.i]; hl(item.el); ring(curFrac());
+  function next(){ if(tk !== A.token) return; if(A.i < A.q.length-1){ playAt(A.i+1); } else { A.playing=false; ring(1); setBtn('▶','Play'); status((A.label||'')+' · finished'); clearHL(); if(A.onDone) A.onDone(); } }
+  status((A.label ? A.label+' · ' : '') + (item.pause ? (item.say ? 'Your turn: say it aloud' : 'Pause') : 'Playing'));
   if(item.pause){
-    var ms = item.pause / parseFloat(rateSel.value||1), bar = document.querySelector('.silence i');
+    var ms = item.pause, bar = document.querySelector('.silence i'); A.t0 = Date.now();
     if(bar){ bar.style.transition='none'; bar.style.width='0'; void bar.offsetWidth; bar.style.transition='width '+ms+'ms linear'; bar.style.width='100%'; }
     A.timer = setTimeout(next, ms); return;
   }
-  if(!synth){ status('Audio is not available in this browser. You can read along.'); A.playing=false; return; }
-  var u = new SpeechSynthesisUtterance(item.text);
-  if(voice) u.voice = voice; u.lang = (voice && voice.lang) || 'en-US'; u.rate = parseFloat(rateSel.value||1); u.pitch = 1;
-  u.onend = next; u.onerror = function(e){ if(tk !== A.token) return; if(e && (e.error==='interrupted' || e.error==='canceled')) return; next(); };
-  synth.speak(u);
+  if(item.audio && !A.noRec){
+    player.onended = next;
+    player.onerror = function(){ if(tk !== A.token) return; speakItem(item, tk, next); };
+    if(player.getAttribute('data-src') !== item.audio){ player.src = item.audio; player.setAttribute('data-src', item.audio); } else { if(A.resumeAt == null) player.currentTime = 0; }
+    if(A.resumeAt != null){ try{ player.currentTime = A.resumeAt; }catch(e){} A.resumeAt = null; }
+    player.playbackRate = parseFloat(rateSel.value)||1;
+    var pr = player.play(); if(pr && pr.catch) pr.catch(function(err){ if(tk !== A.token) return; if(err && err.name === 'NotAllowedError'){ A.playing=false; setBtn('▶','Play'); status('Tap Play to listen'); } else speakItem(item, tk, next); });
+    return;
+  }
+  speakItem(item, tk, next);
 }
-function pauseAudio(){ A.token++; if(synth) synth.cancel(); clearTimeout(A.timer); A.playing=false; $('#abPlay').innerHTML='▶<small>Resume</small>'; status((A.label?A.label+' · ':'')+'Paused'); }
-function stopAudio(silent){ A.token++; if(synth) synth.cancel(); clearTimeout(A.timer); A.playing=false; A.i=0; $('#abPlay').innerHTML='▶<small>Play</small>'; clearHL(); if(!silent) status((A.label?A.label+' · ':'')+'Stopped'); }
+function speakItem(item, tk, next){
+  if(!synth){ status('Audio is not available in this browser. You can read along.'); A.playing=false; setBtn('▶','Play'); return; }
+  var chunks = splitText(item.text), k = 0;
+  (function one(){
+    if(tk !== A.token) return; if(k >= chunks.length) return next();
+    var u = new SpeechSynthesisUtterance(chunks[k++]);
+    if(voice) u.voice = voice; u.lang = (voice && voice.lang) || 'en-US'; u.rate = parseFloat(rateSel.value||1); u.pitch = 1;
+    u.onend = one; u.onerror = function(e){ if(tk !== A.token) return; if(e && (e.error==='interrupted' || e.error==='canceled')) return; one(); };
+    synth.speak(u);
+  })();
+}
+function pauseAudio(){
+  var it = A.q[A.i];
+  if(it && it.audio && player.src && !player.paused){ A.resumeAt = player.currentTime; }
+  halt(); A.playing=false; setBtn('▶','Resume'); status((A.label?A.label+' · ':'')+'Paused');
+}
+function stopAudio(silent){ halt(); A.resumeAt = null; A.playing=false; A.i=0; setBtn('▶','Play'); ring(0); clearHL(); if(!silent) status((A.label?A.label+' · ':'')+'Stopped'); }
 $('#abPlay').onclick = function(){ if(A.playing) pauseAudio(); else playAt(A.i); };
 $('#abStop').onclick = function(){ stopAudio(); };
-$('#abBack').onclick = function(){ playAt(A.i-1); };
-$('#abFwd').onclick = function(){ playAt(A.i+1); };
-$('#abRepeat').onclick = function(){ playAt(0); };
+$('#abBack').onclick = function(){ A.resumeAt = null; playAt(A.i-1); };
+$('#abFwd').onclick = function(){ A.resumeAt = null; playAt(A.i+1); };
+$('#abRepeat').onclick = function(){ A.resumeAt = null; playAt(0); };
 function showBar(on){ $('#audiobar').hidden = !on; document.body.classList.toggle('has-audio', !!on); }
-function quickSpeak(texts, label){ var q=[]; texts.forEach(function(t){ splitText(t).forEach(function(c){ q.push({text:c}); }); }); load(q, null, label); showBar(true); playAt(0); }
+function quickSpeak(texts, label){ load([{text:texts.join(' ')}], null, label); showBar(true); playAt(0); }
+function quickClip(ids, fallback, label, el){ var q = []; ids.forEach(function(id){ var c = clip(id); if(c){ c.el = el; q.push(c); } }); if(!q.length) return quickSpeak(fallback, label); load(q, null, label); showBar(true); playAt(0); }
 
 /* ---------- guided experience: screens ---------- */
 var SCREENS = [];
@@ -106,28 +145,31 @@ var SCREENS = [];
 var current = null;
 
 function secQueue(s){
-  var q = [{text:'Part '+(S.sections.indexOf(s)+1)+'. '+s.title+'.', el:'ptitle'}];
-  s.blocks.forEach(function(b, bi){ if(!b.who) return; splitText(b.t).forEach(function(c){ q.push({text:c, el:'b'+bi}); }); });
-  s.refs.forEach(function(r, ri){
-    q.push({text:'Scripture reading. '+scrip(r).ref.split(' ').slice(0,-1).join(' ')+' '+speakRef(r)+'.', el:'r'+ri});
-    scrip(r).verses.forEach(function(v){ splitText(v.t).forEach(function(c){ q.push({text:c, el:'r'+ri}); }); });
-  });
+  var q = [];
+  if(AU && AU.sec[s.id]){
+    AU.sec[s.id].forEach(function(id){ var c = clip(id); if(c){ c.el = null; q.push(c); } });
+    (AU.scr[s.id]||[]).forEach(function(id){ var c = clip(id); if(c){ c.el = 'scrwrap'; q.push(c); } });
+    if(q.length) return q;
+  }
+  q.push({text:'Part '+(S.sections.indexOf(s)+1)+'. '+s.title+'.', el:'ptitle'});
+  s.blocks.forEach(function(b, bi){ if(!b.who) return; q.push({text:sayable(b.t), el:'b'+bi}); });
+  s.refs.forEach(function(r, ri){ q.push({text:'Scripture reading. '+speakRef(r)+'. '+scripText(r), el:'r'+ri}); });
   return q;
 }
 function declQueue(d){
-  var q = [], words = sayable(d.text).split(' ').length;
+  var di = S.decl.indexOf(d), c = AU ? clip(AU.decl[di]) : null, q = [];
+  var main = c ? (c.el='dq', c) : {text:sayable(d.text), el:'dq'};
+  var len = c ? c.dur*1000 : sayable(d.text).split(' ').length*450;
   if(repBox.checked){
-    q.push({text:'Repeat after me.', el:'dq'});
-    q.push({text:sayable(d.text), el:'dq'});
-    q.push({pause: Math.max(3500, words*650), el:'dq'});
-  } else { q.push({text:sayable(d.text), el:'dq'}); q.push({pause:1200, el:'dq'}); }
+    var r = AU ? clip(AU.repeat) : null; q.push(r ? (r.el='dq', r) : {text:'Repeat after me.', el:'dq'});
+    q.push(main); q.push({pause: Math.round(Math.max(3000, len*1.15 + 1500)), el:'dq', say:1});
+  } else { q.push(main); q.push({pause:1200, el:'dq'}); }
   return q;
 }
 function declHTML(d, n, total){
   var r = d.ref ? '<button class="reveal" id="refBtn">Show '+esc(scrip(d.ref).ref)+'</button><div id="refBox" hidden>'+scripHTML(d.ref)+'</div>' : '';
   return '<div class="decl">'+
-    '<div class="dn">Declaration &amp; Prayer '+n+' of '+total+'</div>'+
-    '<span class="kind '+d.type+'">'+(d.type==='Prayer'?'Pray':'Declare')+'</span>'+
+    '<span class="kind '+d.type+'">'+(d.type==='Prayer'?'Pray':'Declare')+' · '+n+' of '+total+'</span>'+
     (repBox.checked ? '<div class="say">Repeat after me</div>' : '')+
     '<blockquote id="dq">'+bracketNote(d.text)+'</blockquote>'+
     '<div class="silence" aria-hidden="true"><i></i></div>'+
@@ -135,75 +177,113 @@ function declHTML(d, n, total){
 }
 function bindRef(){ var b = $('#refBtn'); if(b) b.onclick = function(){ var x=$('#refBox'); x.hidden=!x.hidden; b.textContent = (x.hidden?'Show ':'Hide ')+b.textContent.replace(/^(Show|Hide) /,''); }; }
 
+/* mode: 'listen' or 'read' */
+function mode(){ return store.get('mode','listen'); }
+function setup(){
+  setTitle('Guided Prayer'); showBar(false); stopAudio(true); current=null;
+  var pos = store.get('pos', 0);
+  var h = '<div class="wrap"><h1 class="setup-h">How would you like to pray?</h1>'+
+   '<p class="note">Nothing plays until you choose. You can change this at any time.</p>'+
+   '<div class="choice"><button class="choice-btn" id="mListen"><b>Listen and pray</b><small>Recorded narration reads each step aloud</small></button>'+
+   '<button class="choice-btn alt" id="mRead"><b>Read quietly</b><small>No sound. Move at your own pace</small></button></div>'+
+   '<div class="card opts-card"><h3>Listening options</h3>'+
+   '<label class="opt-row"><input type="checkbox" id="sAuto"'+(autoBox.checked?' checked':'')+'> <span><b>Move to the next step automatically</b><small>When a step finishes, the next one begins. Off: you tap Next yourself.</small></span></label>'+
+   '<label class="opt-row"><input type="checkbox" id="sRep"'+(repBox.checked?' checked':'')+'> <span><b>Repeat-after-me pauses</b><small>After each declaration, a silent pause lets you say it aloud.</small></span></label>'+
+   '<label class="opt-row sel">Reading speed <select id="sRate">'+['0.8','0.9','1','1.15','1.3'].map(function(v){ return '<option value="'+v+'"'+(String(rateSel.value)===v?' selected':'')+'>'+v+'×</option>'; }).join('')+'</select></label></div>'+
+   (pos>0 ? '<p class="resume-note">You stopped at Step '+(pos+1)+' of '+SCREENS.length+'. <label class="opt-row inline"><input type="checkbox" id="sFresh"> Start over from Step 1</label></p>' : '')+
+   backHome()+'</div>';
+  app.innerHTML = h; top(); bindGo();
+  $('#sAuto').onchange = function(){ autoBox.checked = this.checked; store.set('auto', this.checked); };
+  $('#sRep').onchange = function(){ repBox.checked = this.checked; store.set('repmode', this.checked); };
+  $('#sRate').onchange = function(){ rateSel.value = this.value; rateSel.onchange(); };
+  function begin(m){ store.set('mode', m); var start = (pos>0 && !($('#sFresh') && $('#sFresh').checked)) ? pos : 0; guide(start, m==='listen'); }
+  $('#mListen').onclick = function(){ begin('listen'); };
+  $('#mRead').onclick = function(){ begin('read'); };
+}
+
 function guide(idx, autoplay){
   idx = Math.max(0, Math.min(idx, SCREENS.length-1));
   store.set('pos', idx);
-  var sc = SCREENS[idx], pct = Math.round((idx+1)/SCREENS.length*100), h = '';
-  setTitle('Guided prayer');
-  h += '<div class="wrap"><div class="progress" aria-hidden="true"><i style="width:'+pct+'%"></i></div>';
+  var sc = SCREENS[idx], pct = Math.round((idx+1)/SCREENS.length*100), h = '', listen = mode()==='listen';
+  var secName = sc.type==='sec' ? 'Part '+(sc.si+1)+' of '+S.sections.length+' · '+sc.s.title : 'Declarations · Part '+(S.sections.indexOf(sc.after)+1)+': '+sc.after.title;
+  setTitle('Guided Prayer');
+  h += '<div class="wrap guide"><div class="stephead"><div><div class="stepnum">Step '+(idx+1)+' of '+SCREENS.length+'</div><div class="stepsec">'+esc(secName)+'</div></div>'+
+       '<button class="startover" id="gOver">⟲ Start Over</button></div>'+
+       '<div class="progress" aria-hidden="true"><i style="width:'+pct+'%"></i></div>';
   if(sc.type === 'sec'){
     var s = sc.s, ds = s.directions.map(function(i){ return S.directions[i]; });
     var cues = {}; ds.forEach(function(d){ cues[d.cue]=1; }); if(s.refs.length) cues.READ = 1;
-    h += '<div class="count">Part '+(sc.si+1)+' of '+S.sections.length+' · Step '+(idx+1)+' of '+SCREENS.length+'</div>';
-    h += '<h2 class="part-title" id="ptitle">'+esc(s.title)+'</h2>';
     h += '<div class="chips">'+Object.keys(cues).map(chip).join('')+'</div>';
     if(ds.length){ h += '<div class="box dir"><div class="label" style="margin-top:0">Original direction in this part</div>'+ds.map(function(d){ return '<div class="dir-item">'+chip(d.cue)+' “'+esc(d.text)+'”</div>'; }).join('')+'</div>'; }
-    h += '<div class="label">Original prophetic direction · service time '+s.start+'</div><div class="tx">';
+    h += navRow(idx);
+    h += '<div class="label">Original prophetic direction · service time '+s.start+'</div><div class="tx" id="txwrap">';
     s.blocks.forEach(function(b, bi){ h += '<div class="blk" id="b'+bi+'">'+(b.who?'<span class="who">'+esc(b.who)+' · '+b.ts+'</span>'+esc(b.t):'<span class="mark">'+esc(b.t)+'</span>')+'</div>'; });
     h += '</div>';
-    if(s.refs.length){ h += '<div class="label">Read the Scripture (KJV)</div>'+s.refs.map(function(r, ri){ return scripHTML(r, 'r'+ri); }).join(''); }
+    if(s.refs.length){ h += '<div id="scrwrap"><div class="label">Read the Scripture (KJV)</div>'+s.refs.map(function(r, ri){ return scripHTML(r, 'r'+ri); }).join('')+'</div>'; }
+    h += navRow(idx, true);
   } else {
-    h += '<div class="count">'+esc(sc.after.title)+' · Step '+(idx+1)+' of '+SCREENS.length+'</div>';
     h += declHTML(sc.d, sc.n, sc.total);
+    h += navRow(idx);
   }
-  h += '<div class="navrow"><button id="gPrev"'+(idx===0?' disabled':'')+'>‹ Previous</button><button class="primary" id="gNext">'+(idx===SCREENS.length-1?'Finish':'Next ›')+'</button></div>';
-  h += '<p class="note" style="text-align:center">Tap Play below to listen. Hands-free moves to the next step by itself.</p></div>';
-  app.innerHTML = h; top(); bindRef(); showBar(true);
-  var label = sc.type==='sec' ? 'Part '+(sc.si+1)+' of '+S.sections.length : 'Declaration '+sc.n+' of '+sc.total;
-  function done(){ if(autoBox.checked){ if(idx < SCREENS.length-1) guide(idx+1, true); else go('complete'); } }
-  var build = function(){ load(sc.type==='sec' ? secQueue(sc.s) : declQueue(sc.d), done, label); };
-  build();
+  if(!listen) h += '<p class="note center"><button class="linkbtn" id="gListen">Switch to listening</button></p>';
+  else h += '<p class="note center"><button class="linkbtn" id="gRead">Switch to reading quietly</button></p>';
+  h += '</div>';
+  app.innerHTML = h; top(); bindRef(); showBar(listen);
+  var label = 'Step '+(idx+1)+' of '+SCREENS.length;
+  function done(){ if(autoBox.checked){ if(idx < SCREENS.length-1) guide(idx+1, true); else go('complete'); } else { status(label+' · finished. Tap Next when ready.'); } }
+  load(sc.type==='sec' ? secQueue(sc.s) : declQueue(sc.d), done, label);
   current = {rebuild: function(){ if(sc.type==='decl'){ guide(idx, false); } }};
-  $('#gPrev').onclick = function(){ guide(idx-1, A.playing); };
-  $('#gNext').onclick = function(){ if(idx===SCREENS.length-1) go('complete'); else guide(idx+1, A.playing); };
-  if(autoplay) playAt(0);
+  app.querySelectorAll('.gPrev').forEach(function(b){ b.onclick = function(){ guide(idx-1, listen && A.playing); }; });
+  app.querySelectorAll('.gNext').forEach(function(b){ b.onclick = function(){ if(idx===SCREENS.length-1) go('complete'); else guide(idx+1, listen && A.playing); }; });
+  $('#gOver').onclick = function(){ stopAudio(true); store.set('pos',0); guide(0, false); };
+  if($('#gListen')) $('#gListen').onclick = function(){ store.set('mode','listen'); guide(idx, true); };
+  if($('#gRead')) $('#gRead').onclick = function(){ store.set('mode','read'); stopAudio(true); guide(idx, false); };
+  if(autoplay && listen) playAt(0);
 }
+function navRow(idx, bottom){ return '<div class="navrow'+(bottom?' bottom':'')+'"><button class="gPrev"'+(idx===0?' disabled':'')+'>‹ Previous</button><button class="primary gNext">'+(idx===SCREENS.length-1?'Finish':'Next ›')+'</button></div>'; }
 
 /* ---------- views ---------- */
 function home(){
-  setTitle('L137 Deliverance Ministry'); showBar(false); stopAudio(true); current=null;
+  setTitle('Welcome'); showBar(false); stopAudio(true); current=null;
   var pos = store.get('pos', 0), main = scrip(M.mainRef);
   var h = '<div class="wrap">'+
-   '<section class="opening" aria-label="About this study"><div class="eyebrow">L137 Deliverance Ministry</div><p>'+esc(M.opening)+'</p><div class="rule"></div></section>'+
-   '<section class="hero"><div class="ministry">'+esc(M.ministry)+'</div><h1>'+esc(M.title)+'</h1>'+
-   '<div class="who">'+esc(M.minister)+'</div><div class="date">'+esc(M.date)+'</div>'+
-   '<div class="verse-hero">'+esc(main.verses.map(function(v){return v.t;}).join(' '))+'<cite>'+esc(main.ref)+' (KJV)</cite></div>'+
-   '<button class="start" id="btnStart">▶ START</button>'+
-   (pos>0 ? '<button class="resume" id="btnResume">Continue where you left off (step '+(pos+1)+' of '+SCREENS.length+')</button>' : '')+
+   '<section class="hero"><div class="ministry">'+esc(M.ministry)+'</div><h1>'+esc(M.short)+'</h1>'+
+   '<div class="sub">'+esc(M.subtitle)+'</div><div class="host">Hosted by L137 Deliverance Ministry International</div>'+
+   '<div class="three">'+
+     '<button class="big b1" id="btnStart"><span class="ic">▶</span><span><b>Start Guided Prayer</b><small>'+SCREENS.length+' steps · listen or read</small></span></button>'+
+     '<button class="big b2" data-go="learn"><span class="ic">✦</span><span><b>Explore the Teaching</b><small>Beginner · Intermediate · Advanced</small></span></button>'+
+     '<button class="big b3" data-go="quiz"><span class="ic">?</span><span><b>Take a Quiz</b><small>5 · 7 · 10 questions</small></span></button>'+
+   '</div>'+
+   (pos>0 ? '<p class="resume-line">Last time you reached Step '+(pos+1)+' of '+SCREENS.length+'.</p>' : '')+
+   '<a class="pdfbtn" href="workbook.pdf" target="_blank" rel="noopener" download>⇩ Download Workbook (PDF)</a>'+
    '</section>'+
-   '<details class="studymore"><summary>Study More</summary><div class="menu">'+
-   '<button data-go="learn">Learn the Teaching<small>Beginner · Intermediate · Advanced</small></button>'+
+   '<h2 class="morehead">More resources</h2><div class="menu">'+
    '<button data-go="decls">Declarations<small>'+S.decl.length+' prayers and declarations, in order</small></button>'+
    '<button data-go="directions">Original Directions<small>'+S.directions.length+' instructions, in order</small></button>'+
    '<button data-go="family">My Family Prayers<small>Enter names once</small></button>'+
    '<button data-go="memory">Scripture Memory Cards<small>'+S.memory.length+' verses</small></button>'+
-   '<button data-go="quiz">Bible Quiz<small>5 · 7 · 10 questions</small></button>'+
    '<button data-go="scriptures">All Scriptures<small>Every passage, full KJV</small></button>'+
    '<button data-go="transcript">Full Transcript<small>Searchable · printable</small></button>'+
-   '<button data-go="about">About &amp; Sources<small>How this was prepared</small></button>'+
-   '</div></details>'+
-   '<div class="footer">L137 · Luke 1:37 · For with God nothing shall be impossible.</div></div>';
+   '</div>'+
+   '<details class="svc"><summary>Service details</summary><dl>'+
+   '<dt>Full service title</dt><dd>'+esc(M.title)+'</dd>'+
+   '<dt>Ministering</dt><dd>'+esc(M.minister)+', Dominion Hour</dd>'+
+   '<dt>Host</dt><dd>'+esc(M.host)+'</dd>'+
+   '<dt>Closing prayer for the children</dt><dd>Pastor Kiky Ocansey</dd>'+
+   '<dt>Date</dt><dd>'+esc(M.date)+'</dd>'+
+   '<dt>Theme Scripture</dt><dd>“'+esc(main.verses.map(function(v){return v.t;}).join(' '))+'” '+esc(main.ref)+' (KJV)</dd>'+
+   '</dl><button class="linkbtn" data-go="about">About this study and sources ›</button></details>'+
+   '</div>';
   app.innerHTML = h; top();
-  $('#btnStart').onclick = function(){ store.set('pos',0); guide(0, true); };
-  if($('#btnResume')) $('#btnResume').onclick = function(){ guide(pos, true); };
-  app.querySelectorAll('[data-go]').forEach(function(b){ b.onclick = function(){ go(b.getAttribute('data-go')); }; });
+  $('#btnStart').onclick = function(){ setup(); };
+  bindGo();
 }
 
 function complete(){
-  setTitle('Completed'); showBar(false); stopAudio(true);
-  app.innerHTML = '<div class="wrap" style="text-align:center;padding-top:30px"><div class="eyebrow">Guided prayer complete</div><h1>You have finished the service</h1>'+
-   scripHTML('Luke 1:37')+'<p>Continue in Study More: learn the teaching, pray for your family, practise the memory verses, and take the quiz.</p>'+
-   '<button class="btn solid" data-go="learn">Learn the Teaching</button><button class="btn" data-go="family">My Family Prayers</button><button class="btn" data-go="quiz">Bible Quiz</button><button class="btn" data-go="home">Home</button></div>';
+  setTitle('Completed'); showBar(false); stopAudio(true); store.set('pos',0);
+  app.innerHTML = '<div class="wrap" style="text-align:center;padding-top:30px"><div class="eyebrow">Guided prayer complete</div><h1>You have finished all '+SCREENS.length+' steps</h1>'+
+   scripHTML('Luke 1:37')+'<p>Continue with the teaching, family prayers, memory verses, quiz, or the workbook.</p>'+
+   '<button class="btn solid" data-go="learn">Explore the Teaching</button><button class="btn" data-go="family">My Family Prayers</button><button class="btn" data-go="quiz">Take a Quiz</button><a class="btn" href="workbook.pdf" target="_blank" rel="noopener" download>Download Workbook (PDF)</a><button class="btn" data-go="home">Home</button></div>';
   bindGo(); top();
 }
 function bindGo(){ app.querySelectorAll('[data-go]').forEach(function(b){ b.onclick = function(){ go(b.getAttribute('data-go')); }; }); }
@@ -239,7 +319,9 @@ function learn(level){
   app.querySelectorAll('[data-quiz]').forEach(function(b){ b.onclick = function(){ quiz(b.getAttribute('data-quiz')); }; });
   app.querySelectorAll('[data-listen]').forEach(function(b){ b.onclick = function(){ var c=L.cards[+b.getAttribute('data-listen')], t=[c.title+'.'];
     if(c.word) t.push(c.word[1]+'. '+c.word[2]); if(c.context) t.push(c.context); if(c.quote) t.push('The service said: '+c.quote[1]); if(c.simple) t.push(c.simple); if(c.meaning) t.push(c.meaning); if(c.application) t.push(c.application); if(c.key) t.push('Key point. '+c.key);
-    c.refs.forEach(function(r){ t.push('Scripture reading. '+scrip(r).ref+'. '+scripText(r)); }); quickSpeak(t, c.title); }; });
+    c.refs.forEach(function(r){ t.push('Scripture reading. '+scrip(r).ref+'. '+scripText(r)); });
+    var ci = +b.getAttribute('data-listen'), ids = AU ? [AU.learn[level][ci]].concat(c.refs.map(function(r){ return AU.ref[r]; })) : [];
+    quickClip(ids, t, c.title, 'c'+ci); }; });
 }
 
 /* Quiz */
@@ -307,7 +389,7 @@ function directions(){
   var h = '<div class="wrap"><h1>Original Directions</h1><p>The instructions given during the service, word for word, in order. Nothing has been added.</p><ul class="list">';
   S.directions.forEach(function(d,i){ h += '<li class="box dir" id="dr'+i+'"><div class="count">'+(i+1)+' of '+S.directions.length+' · '+esc(d.who)+' · '+d.ts+'</div>'+chip(d.cue)+'<p style="margin-top:8px">“'+esc(d.text)+'”</p></li>'; });
   app.innerHTML = h+'</ul><button class="btn solid" id="listenDirs">▶ Listen to all directions</button>'+backHome()+'</div>'; top(); bindGo();
-  $('#listenDirs').onclick = function(){ var q=[]; S.directions.forEach(function(d,i){ q.push({text:'Direction '+(i+1)+'. '+CUE[d.cue]+'.', el:'dr'+i}); splitText(d.text).forEach(function(c){ q.push({text:c, el:'dr'+i}); }); q.push({pause:1500, el:'dr'+i}); }); load(q,null,'Original directions'); playAt(0); };
+  $('#listenDirs').onclick = function(){ var q=[]; S.directions.forEach(function(d,i){ var c = AU ? clip(AU.dir[i]) : null; if(c){ c.el='dr'+i; q.push(c); } else q.push({text:d.text, el:'dr'+i}); q.push({pause:1500, el:'dr'+i}); }); load(q,null,'Original directions'); playAt(0); };
 }
 
 /* Scriptures library */
@@ -319,7 +401,7 @@ function scriptures(){
     s.refs.forEach(function(r){ n++; h += '<button class="tap-reveal" data-reveal="sr'+n+'">'+esc(scrip(r).ref)+'</button><div id="sr'+n+'" hidden>'+scripHTML(r)+'<button class="btn" data-say="'+r+'">▶ Listen</button></div>'; }); });
   app.innerHTML = h+backHome()+'</div>'; top(); bindGo();
   app.querySelectorAll('[data-reveal]').forEach(function(b){ b.onclick = function(){ var x=document.getElementById(b.getAttribute('data-reveal')); x.hidden=!x.hidden; }; });
-  app.querySelectorAll('[data-say]').forEach(function(b){ b.onclick = function(){ var r=b.getAttribute('data-say'); quickSpeak([scrip(r).ref+'.', scripText(r)], scrip(r).ref); }; });
+  app.querySelectorAll('[data-say]').forEach(function(b){ b.onclick = function(){ var r=b.getAttribute('data-say'); quickClip(AU?[AU.ref[r]]:[], [scrip(r).ref+'.', scripText(r)], scrip(r).ref); }; });
 }
 
 /* Memory cards */
@@ -337,8 +419,11 @@ function memory(i){
   top(); bindGo();
   app.querySelectorAll('[data-m]').forEach(function(b){ b.onclick = function(){ store.set('memmode', b.getAttribute('data-m')); memory(i); }; });
   app.querySelectorAll('.blank').forEach(function(b){ b.onclick = b.onkeydown = function(e){ if(e.type==='keydown' && e.key!=='Enter' && e.key!==' ') return; b.classList.add('show'); }; });
-  $('#memPlay').onclick = function(){ quickSpeak([s.ref+'.', scripText(ref)], s.ref); };
-  $('#memPlay2').onclick = function(){ var q=[{text:s.ref+'. Repeat after me.'}]; splitText(scripText(ref)).forEach(function(c){ q.push({text:c}); q.push({pause:Math.max(2500,c.split(' ').length*600)}); }); load(q,null,s.ref); playAt(0); };
+  $('#memPlay').onclick = function(){ quickClip(AU?[AU.ref[ref]]:[], [s.ref+'.', scripText(ref)], s.ref); };
+  $('#memPlay2').onclick = function(){ var c = AU ? clip(AU.ref[ref]) : null, r = AU ? clip(AU.repeat) : null, q = [];
+    if(c){ q.push(r || {text:'Repeat after me.'}); q.push(c); q.push({pause: Math.round(c.dur*1000*1.1+1500), say:1}); }
+    else { q.push({text:s.ref+'. Repeat after me.'}); splitText(scripText(ref)).forEach(function(t){ q.push({text:t}); q.push({pause:Math.max(2500,t.split(' ').length*600), say:1}); }); }
+    load(q,null,s.ref); playAt(0); };
   $('#mPrev').onclick = function(){ memory(i-1); }; $('#mNext').onclick = function(){ memory(i+1); };
 }
 
@@ -408,21 +493,22 @@ function about(){
   setTitle('About & Sources'); showBar(false); stopAudio(true); current=null;
   var notes = S.decl.filter(function(d){ return /\[/.test(d.text); });
   var h = '<div class="wrap"><h1>About this study</h1>'+
+   '<div class="card"><h3>Ministry</h3><p>'+esc(M.ministry)+'. This service was hosted by L137 Deliverance Ministry International on Clubhouse. Prophet Prince Amo David ministered; Pastor Kiky Ocansey led the closing prayer for the children.</p></div>'+
    '<div class="card"><h3>What is in this tool</h3><p><b>Original prophetic direction:</b> the service transcript, the declarations, and the directions, in the order given. Section titles are study labels only.</p><p><b>Supplementary biblical study:</b> the Learn lessons, word studies, and Scripture notes.</p><p><b>Personalized prayers:</b> My Family Prayers, built from Scripture used in the service.</p><p><b>Interactive quizzes:</b> questions drawn from the King James text.</p></div>'+
    '<div class="card"><h3>Privacy</h3><p>Participants\' names, personal prophecies, individual ministry, and personal conversations about giving were removed from the public transcript. Names you type in My Family Prayers stay on your device and are never sent anywhere.</p></div>'+
    '<div class="card"><h3>Transcription notes</h3><p>The recording was transcribed automatically. Long passages of praying in tongues and unclear audio are marked in brackets. Words in [square brackets] inside a declaration were unclear; the bracketed word is a suggested reading:</p><ul>'+notes.map(function(d){ return '<li>'+d.ts+': '+bracketNote(d.text)+'</li>'; }).join('')+'</ul></div>'+
    '<div class="card"><h3>Scripture notes</h3><ul><li>2 Kings 4:8-9 (KJV) names Elisha as the man of God the Shunammite woman honored. The service said "the prophet Elijah."</li><li>2 Kings 2:19-22 (KJV) records Elisha healing the waters of Jericho.</li><li>The names heard as "Ruby" and "Rupi" match Reuben (Genesis 49:3-4; Deuteronomy 33:6).</li><li>The King James Bible names the angels Michael and Gabriel. The name Raphael is not in the 66 books of the KJV.</li></ul></div>'+
    '<div class="card"><h3>Health</h3><p>The service also said, "Doctors will do their part." Keep taking prescribed treatment and follow your doctor\'s advice while you pray.</p></div>'+
    '<div class="card"><h3>Sources</h3><ul><li>Scripture: King James Version (public domain).</li>'+Object.keys(S.src).map(function(k){ var s=S.src[k]; return '<li><a href="'+s.url+'" target="_blank" rel="noopener">'+esc(s.name)+'</a></li>'; }).join('')+'</ul></div>'+
-   '<div class="card"><h3>Audio</h3><p>Audio uses your phone\'s built-in reading voice. It is not the voice of any minister. On iPhone, turn off silent mode and raise the volume.</p></div>'+
+   '<div class="card"><h3>Audio</h3><p>The guided prayer, declarations, directions, lessons, and Scripture readings use recorded narration made for this study (a deep male voice for the service words and declarations, a narrator voice for Scripture and lessons). It is not the voice of any minister. My Family Prayers reads the names you type, so it uses your phone\'s voice. On iPhone, turn off silent mode and raise the volume.</p></div>'+
    backHome()+'</div>';
   app.innerHTML = h; top(); bindGo();
 }
 
 /* router */
-var routes = {home:home, learn:function(){learn();}, quiz:function(){quiz();}, decls:function(){decls();}, directions:directions, scriptures:scriptures, memory:function(){memory(0);}, family:family, transcript:transcript, about:about, complete:complete};
+var routes = {home:home, setup:setup, learn:function(){learn();}, quiz:function(){quiz();}, decls:function(){decls();}, directions:directions, scriptures:scriptures, memory:function(){memory(0);}, family:family, transcript:transcript, about:about, complete:complete};
 function go(r){ (routes[r]||home)(); }
-window.addEventListener('beforeunload', function(){ if(synth) synth.cancel(); });
+window.addEventListener('beforeunload', function(){ halt(); });
 document.addEventListener('visibilitychange', function(){ /* keep speaking in background where the browser allows */ });
 home();
 })();

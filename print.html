@@ -23,14 +23,14 @@ p{margin:4pt 0 6pt;orphans:3;widows:3}
 .sec{break-before:page}
 a{color:#1F4FD1}
 </style></head><body><div id="out"></div>
-<script src="data.js"></script>
+<script src="data.js?v=4"></script>
 <script>
 (function(){
 var S=window.STUDY,M=S.meta,h='';
 function e(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 function sc(r){var s=S.scripture[r];return '<div class="s"><b>'+e(s.ref)+' (KJV)</b>'+s.verses.map(function(v){return '<sup>'+v.v+'</sup> '+e(v.t);}).join(' ')+'</div>';}
 var main=S.scripture[M.mainRef];
-h+='<div class="cover"><p class="open">'+e(M.opening)+'</p><div class="min">'+e(M.ministry)+'</div><h1>'+e(M.title)+'</h1><p><b>'+e(M.minister)+'</b><br>'+e(M.date)+'</p><div class="verse">'+e(main.verses.map(function(v){return v.t;}).join(' '))+'<br><b style="font-family:DM Sans;color:#7A5A00">'+e(main.ref)+' (KJV)</b></div><p class="note">Contents: Part One, Original Prophetic Direction (clean public transcript, in order). Part Two, Declarations and Prayers. Part Three, Original Directions. Part Four, Supplementary Biblical Study. Part Five, Personalized Family Prayers.</p></div>';
+h+='<div class="cover"><div class="min">'+e(M.ministry)+'</div><h1>'+e(M.title)+'</h1><p>Hosted by L137 Deliverance Ministry International · Closing prayer for the children: Pastor Kiky Ocansey<br>'+e(M.date)+'</p><div class="verse">'+e(main.verses.map(function(v){return v.t;}).join(' '))+'<br><b style="font-family:DM Sans;color:#7A5A00">'+e(main.ref)+' (KJV)</b></div><p class="note">Contents: Part One, Original Prophetic Direction (clean public transcript, in order). Part Two, Declarations and Prayers. Part Three, Original Directions. Part Four, Supplementary Biblical Study. Part Five, Personalized Family Prayers.</p></div>';
 h+='<h1>Part One · Original Prophetic Direction</h1><p class="note">Clean public transcript. Participants\' names, personal prophecies, and personal conversations are removed for privacy and marked in brackets. Section titles are study labels only. Every other word is as transcribed.</p>';
 S.sections.forEach(function(s,i){
   h+='<h2>Part '+(i+1)+'. '+e(s.title)+' <span class="note">('+s.start+')</span></h2>';
@@ -60,7 +60,7 @@ h+='<h1 class="sec">Part Four · Supplementary Biblical Study</h1><p class="note
 h+='<h2>Scripture notes</h2><p>2 Kings 4:8-9 (KJV) names Elisha as the man of God the Shunammite woman honored; the service said "the prophet Elijah." 2 Kings 2:19-22 records Elisha healing the waters of Jericho. The names heard as "Ruby" and "Rupi" match Reuben (Genesis 49:3-4; Deuteronomy 33:6). The King James Bible names the angels Michael and Gabriel; the name Raphael is not in the 66 books of the KJV.</p>';
 h+='<h1 class="sec">Part Five · Personalized Family Prayers</h1><p class="note">Built from King James Scripture used in the service. Not the minister\'s original declarations. Write your family\'s names in the blanks.</p>';
 S.family.forEach(function(p){ h+='<h3>'+e(p.title)+'</h3><p>'+e(p.text.replace(/\{(\w+)\}/g,'________'))+'</p>'+sc(p.ref); });
-h+='<p class="note" style="margin-top:20pt">L137 · Luke 1:37 · For with God nothing shall be impossible.</p>';
+h+='<p class="note" style="margin-top:20pt">'+e(M.ministry)+' · hosted by L137 Deliverance Ministry International</p>';
 document.getElementById('out').innerHTML=h;
 })();
 </script></body></html>
